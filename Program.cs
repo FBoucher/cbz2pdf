@@ -58,6 +58,18 @@ string Decompress(string filePath)
 
         var fileInfo = new FileInfo(filePath);
 
+
+// using System.Drawing;
+
+// Bitmap b = (Bitmap)Bitmap.FromStream(file.InputStream);
+
+// using (MemoryStream ms = new MemoryStream()) {
+//     b.Save(ms, ImageFormat.Png);
+
+//     // use the memory stream to base64 encode..
+// }
+
+
         // doesn't work with jpg
         using (FileStream fileStream = fileInfo.OpenRead())
         {
