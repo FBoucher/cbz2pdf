@@ -12,9 +12,28 @@ IConfigurationRoot config = new ConfigurationBuilder()
     .Build();
 Settings? settings = config.GetRequiredSection("Settings").Get<Settings>();
 
-Console.WriteLine("Bonjour hi!");
-GetCBZs(settings.RootFolder);
+var skippedFiles = new List<string>();
+ProcessFolder(settings.RootFolder);
 
+if(skippedFiles.Count > 0){
+    string sfiles = Path.Combine(settings.RootFolder, "skippedFiles.txt");
+    Console.WriteLine($"\n\n{skippedFiles.Count} files were skipped.\n\nThe complete list can be found in {sfiles}");
+    File.WriteAllLines(sfiles, skippedFiles);
+}
+
+
+void ProcessFolder(string folderpath){
+    
+    Console.WriteLine("- Looking for CBZs and CBRs in " + folderpath);
+    GetCBZs(folderpath);
+    var subFolders =  Directory.GetDirectories(folderpath);
+    Console.WriteLine("_");
+
+    foreach (var subFolder in subFolders)
+    {
+        ProcessFolder(subFolder);
+    }
+}
 
 void GetCBZs(string folderpath)
 {
@@ -22,18 +41,25 @@ void GetCBZs(string folderpath)
 
     foreach (var file in files)
     {
-        Console.WriteLine($"- {file}");
-        string destFolder = string.Empty;   
+        try{
+            Console.WriteLine($".. {file}");
+            string destFolder = string.Empty;   
 
-        if (file.EndsWith(".cbz"))
-        {
-            destFolder = DecompressCBZ(file);
+            if (file.EndsWith(".cbz"))
+            {
+                destFolder = DecompressCBZ(file);
+            }
+            else
+            {
+                destFolder = DecompressCBR(file);
+            }
+            CreatePDF(destFolder);
         }
-        else
-        {
-            destFolder = DecompressCBR(file);
+        catch(Exception ex){
+            Console.WriteLine($"!! {file}");
+            skippedFiles.Add(file);
         }
-        CreatePDF(destFolder);
+        
     }
 }
 
@@ -80,7 +106,7 @@ void CreatePDF(string folder)
     var document = new PdfDocument();
     document.Info.Title = justName;
 
-    var files = Directory.GetFiles(folder).OrderBy(f => f).Where(file => Regex.IsMatch(file, @"^.+\.(jpeg|jpg|png)$")).ToArray<string>();
+    var files = Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories).OrderBy(f => f).Where(file => Regex.IsMatch(file, @"^.+\.(jpeg|jpg|png)$")).ToArray<string>();
 
     foreach (var file in files)
     {
@@ -90,15 +116,26 @@ void CreatePDF(string folder)
 
         var fileInfo = new FileInfo(filePath);
 
-        using (FileStream fileStream = fileInfo.OpenRead())
+        try
         {
-            var image = XImage.FromStream(fileStream);
-            gfx.DrawRectangle(XBrushes.Black, new XRect(0, 0, page.Width.Point, page.Height.Point));
-            gfx.DrawImage(image, 0, 0, page.Width.Point, page.Height.Point);
+            using (FileStream fileStream = fileInfo.OpenRead())
+            {
+                var image = XImage.FromStream(fileStream);
+                gfx.DrawRectangle(XBrushes.Black, new XRect(0, 0, page.Width.Point, page.Height.Point));
+                gfx.DrawImage(image, 0, 0, page.Width.Point, page.Height.Point);
+            }            
         }
-
+        catch (Exception ex)
+        {
+            string logMsg = $"! {fileInfo.FullName} --> {ex.Message}";
+            skippedFiles.Add(logMsg);
+            throw;
+        }
+        finally
+        {
+            Directory.Delete(folder, true);
+        }
     }
-
     document.Save(pdfFilename);
-    Directory.Delete(folder, true);
+    
 }
