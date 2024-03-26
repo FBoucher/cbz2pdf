@@ -1,35 +1,67 @@
-﻿
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.RegularExpressions;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
-using System.Drawing;
+using SharpCompress.Archives;
+using SharpCompress.Archives.Rar;
+using SharpCompress.Common;
+using Microsoft.Extensions.Configuration;
 
-string folderpath = "/home/frank/dev/github/fboucher/cbz2pdf/data";
+IConfigurationRoot config = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json")
+    .Build();
+Settings? settings = config.GetRequiredSection("Settings").Get<Settings>();
 
-// See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
-GetCBZs(folderpath);
+Console.WriteLine("Bonjour hi!");
+GetCBZs(settings.RootFolder);
 
 
-
-
-void GetCBZs(string folderpath){
-    //var files = Directory.GetFiles(folderpath, "*.cbz");
+void GetCBZs(string folderpath)
+{
     var files = Directory.GetFiles(folderpath).Where(file => Regex.IsMatch(file, @"^.+\.(cbz|cbr)$"));
+
     foreach (var file in files)
     {
         Console.WriteLine($"- {file}");
-        
-        string destFolder = Decompress(file);
+        string destFolder = string.Empty;   
+
+        if (file.EndsWith(".cbz"))
+        {
+            destFolder = DecompressCBZ(file);
+        }
+        else
+        {
+            destFolder = DecompressCBR(file);
+        }
         CreatePDF(destFolder);
     }
 }
 
-string Decompress(string filePath)
+
+
+string DecompressCBR(string filePath)
 {
     FileInfo fileInfo = new FileInfo(filePath);
-    string destination = Path.GetFileNameWithoutExtension(filePath);
+    string destination = Path.Combine(fileInfo.DirectoryName, Path.GetFileNameWithoutExtension(filePath));
+    Directory.CreateDirectory(Path.Combine(fileInfo.DirectoryName, destination));
+
+    using (var archive = RarArchive.Open(fileInfo.FullName))
+    {
+        foreach (var entry in archive.Entries.Where(entry => !entry.IsDirectory))
+        {
+            entry.WriteToDirectory(destination, new ExtractionOptions { ExtractFullPath = true, Overwrite = true });
+        }
+    }
+    return destination;
+
+}
+
+string DecompressCBZ(string filePath)
+{
+    FileInfo fileInfo = new FileInfo(filePath);
+    string destination = Path.Combine(fileInfo.DirectoryName, Path.GetFileNameWithoutExtension(filePath));
+    Directory.CreateDirectory(Path.Combine(fileInfo.DirectoryName, destination));
+
     using (FileStream fileStream = fileInfo.OpenRead())
     {
         ZipFile.ExtractToDirectory(fileStream, destination, true);
@@ -38,7 +70,7 @@ string Decompress(string filePath)
 }
 
 
- void CreatePDF(string folder)
+void CreatePDF(string folder)
 {
     var pdfFilename = folder + ".pdf";
     if (File.Exists(pdfFilename))
@@ -47,9 +79,9 @@ string Decompress(string filePath)
     var justName = Path.GetFileNameWithoutExtension(folder);
     var document = new PdfDocument();
     document.Info.Title = justName;
-    
 
-    var files = Directory.GetFiles(folder).OrderBy(f => f).ToArray<string>();
+    var files = Directory.GetFiles(folder).OrderBy(f => f).Where(file => Regex.IsMatch(file, @"^.+\.(jpeg|jpg|png)$")).ToArray<string>();
+
     foreach (var file in files)
     {
         var page = document.AddPage();
@@ -58,29 +90,15 @@ string Decompress(string filePath)
 
         var fileInfo = new FileInfo(filePath);
 
-
-// using System.Drawing;
-
-// Bitmap b = (Bitmap)Bitmap.FromStream(file.InputStream);
-
-// using (MemoryStream ms = new MemoryStream()) {
-//     b.Save(ms, ImageFormat.Png);
-
-//     // use the memory stream to base64 encode..
-// }
-
-
-        // doesn't work with jpg
         using (FileStream fileStream = fileInfo.OpenRead())
         {
             var image = XImage.FromStream(fileStream);
             gfx.DrawRectangle(XBrushes.Black, new XRect(0, 0, page.Width.Point, page.Height.Point));
-            gfx.DrawImage(image, 0, 0);
+            gfx.DrawImage(image, 0, 0, page.Width.Point, page.Height.Point);
         }
-        //var image = XImage.FromFile(filePath);
-
 
     }
 
     document.Save(pdfFilename);
+    Directory.Delete(folder, true);
 }
